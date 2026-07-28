@@ -1,0 +1,16 @@
+[Unit]
+Description=Agent Memory Vault worker
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/mnt/Dump/Coding/Projects/agent-memory-vault/.venv/bin/memory-worker --watch
+EnvironmentFile=-%h/.config/agent-memory-vault/agent-memory-vault.env
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
+

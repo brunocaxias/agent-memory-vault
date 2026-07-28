@@ -1,0 +1,44 @@
+[project]
+name = "agent-memory-vault"
+version = "0.1.0"
+description = "Codex-first persistent memory backed by an Obsidian-compatible Markdown vault"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<9",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+memory-context = "agent_memory_vault.cli:context_main"
+memory-hook = "agent_memory_vault.cli:hook_main"
+memory-worker = "agent_memory_vault.cli:worker_main"
+memory-seed = "agent_memory_vault.cli:seed_main"
+memory-vault = "agent_memory_vault.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_memory_vault"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+

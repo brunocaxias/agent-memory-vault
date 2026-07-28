@@ -1,0 +1,12 @@
+title = "Agent Memory Vault secret scanning"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Only test placeholders and documentation examples are allowed."
+paths = [
+  '''tests/''',
+  '''config/agent-memory-vault\.env\.example''',
+]
+

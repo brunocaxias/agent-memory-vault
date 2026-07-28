@@ -1,0 +1,30 @@
+{
+  "description": "Persistent Obsidian memory hooks for Codex.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/mnt/Dump/Coding/Projects/agent-memory-vault/.venv/bin/memory-context --hook",
+            "statusMessage": "Loading persistent Obsidian memory",
+            "additionalContextLimit": 5000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/mnt/Dump/Coding/Projects/agent-memory-vault/.venv/bin/memory-hook session-end",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
+
