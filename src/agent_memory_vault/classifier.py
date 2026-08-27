@@ -27,7 +27,7 @@ class Classification:
 
 SYSTEM_PROMPT = """\
 You extract durable Codex work memories from a redacted transcript excerpt.
-Return JSON with exactly one top-level key named "memories".
+Return JSON with exactly two top-level keys: "memories" and "handoff".
 
 Eligible memories:
 - an explicit statement made by the user;
@@ -46,10 +46,24 @@ eligibility: explicit-user-statement | verified-project-outcome
 evidence_excerpt: a short verbatim redacted excerpt supporting the memory
 supersedes_id: null unless the transcript explicitly identifies an older memory
 review_after: YYYY-MM-DD
+entities: up to 12 concise named people, projects, tools, systems, or organizations
+concepts: up to 12 concise durable topics grounded in the content and evidence
+effective_from: optional YYYY-MM-DD when the evidence says when this became true
+effective_to: optional YYYY-MM-DD when the evidence says when this ceased to be true
+relations: up to 12 grounded objects with type, target, and target_kind
+  (memory | entity | concept). Use short snake_case types such as requires,
+  affects, blocks, supports, or relates_to. Never invent a relation target.
+
+For a project session, handoff may contain a concise, evidence-grounded working
+handoff with summary, completed, changed_files, verification, blockers,
+next_steps, and open_questions. Use null when there is no useful project handoff.
+This is temporary continuity context, not a durable memory: capture only work
+actually visible in the redacted transcript and never include secrets or guesses.
 
 Use project-state review after 30 days, decisions/runbooks after 180 days, and
 global preferences/stable facts after 365 days. Empty memories are valid.
-Do not add IDs, status, timestamps, priority, or claims absent from evidence.
+Use empty entity/concept/relation arrays when no grounded label is useful. Do not add IDs,
+status, timestamps, priority, or claims absent from evidence.
 """
 
 

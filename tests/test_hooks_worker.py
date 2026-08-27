@@ -6,8 +6,9 @@ from pathlib import Path
 
 from agent_memory_vault.classifier import Classification
 from agent_memory_vault.config import Settings
-from agent_memory_vault.hooks import session_end, session_start
+from agent_memory_vault.hooks import pre_compact, session_end, session_start, user_prompt_submit
 from agent_memory_vault.models import (
+    CandidateHandoff,
     CandidateMemory,
     ClassifierOutput,
     HookInput,
@@ -55,6 +56,24 @@ class FakeClassifier:
         return Classification(ClassifierOutput(memories=[memory]), 100, 20)
 
 
+class HandoffClassifier(FakeClassifier):
+    def classify(self, excerpt: str, project_slug: str | None) -> Classification:
+        result = super().classify(excerpt, project_slug)
+        return Classification(
+            ClassifierOutput(
+                memories=result.output.memories,
+                handoff=CandidateHandoff(
+                    summary="Local tools preference was captured for the project.",
+                    completed=["Captured a project preference"],
+                    verification=["Worker completed successfully"],
+                    next_steps=["Use the preference in future project work"],
+                ),
+            ),
+            result.input_tokens,
+            result.output_tokens,
+        )
+
+
 def test_hooks_and_worker_pipeline(
     settings: Settings,
     codex_home_dir: Path,
@@ -84,9 +103,17 @@ def test_hooks_and_worker_pipeline(
         hook_event_name="SessionStart",
         source="startup",
     )
-    output = json.loads(session_start(settings, start))
-    context = output["hookSpecificOutput"]["additionalContext"]
-    assert "I prefer local tools." in context
+    assert session_start(settings, start) == ""
+    prompt = HookInput(
+        session_id="session-2",
+        cwd=project,
+        hook_event_name="UserPromptSubmit",
+        prompt="Do I prefer local tools?",
+    )
+    prompt_context = json.loads(user_prompt_submit(settings, prompt))["hookSpecificOutput"][
+        "additionalContext"
+    ]
+    assert "I prefer local tools." in prompt_context
     assert FileQueue(settings.state_root).claim() is None
 
 
@@ -116,3 +143,56 @@ def test_secret_blocks_classifier(
     result = worker.run_once()
     assert result.state == "blocked"
     assert list((settings.vault_root / "80-audit").glob("*secret-blocked*.md"))
+
+
+def test_precompact_handoff_and_prompt_recall(
+    settings: Settings,
+    codex_home_dir: Path,
+    monkeypatch,
+) -> None:
+    project = eligible_project(settings, codex_home_dir)
+    transcript = project / "rollout.jsonl"
+    write_transcript(transcript)
+    checkpoint = HookInput(
+        session_id="checkpoint-session",
+        transcript_path=transcript,
+        cwd=project,
+        hook_event_name="PreCompact",
+        trigger="auto",
+    )
+    created, reason = pre_compact(settings, checkpoint)
+    assert not created
+    assert reason == "session-end-only classification"
+    assert FileQueue(settings.state_root).claim() is None
+
+    completed, _ = session_end(
+        settings,
+        checkpoint.model_copy(update={"hook_event_name": "SessionEnd"}),
+    )
+    assert completed
+
+    worker = MemoryWorker(settings, classifier=HandoffClassifier())
+    monkeypatch.setattr(worker, "_commit_and_backup", lambda session_id: None)
+    assert worker.run_once().state == "completed"
+
+    start = HookInput(
+        session_id="next-session",
+        cwd=project,
+        hook_event_name="SessionStart",
+        source="startup",
+    )
+    start_output = json.loads(session_start(settings, start))
+    start_context = start_output["hookSpecificOutput"]["additionalContext"]
+    assert "Latest project handoff" in start_context
+    assert "Local tools preference was captured" in start_context
+
+    prompt = HookInput(
+        session_id="next-session",
+        cwd=project,
+        hook_event_name="UserPromptSubmit",
+        prompt="Which local tools should this project use?",
+    )
+    recall_context = json.loads(user_prompt_submit(settings, prompt))["hookSpecificOutput"][
+        "additionalContext"
+    ]
+    assert "I prefer local tools." in recall_context

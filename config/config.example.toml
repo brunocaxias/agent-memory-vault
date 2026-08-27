@@ -1,21 +1,24 @@
-vault_root = "/mnt/Dump/Coding/Projects/agent-memory-vault"
+vault_root = "/mnt/Dump/Obsidian/Vaults/Agent-Memory"
 allowed_project_roots = ["/mnt/Dump/Coding/Projects"]
 allowed_non_project_roots = []
 denied_roots = []
 
-global_token_budget = 1500
-project_token_budget = 3000
-max_context_files = 12
+global_token_budget = 400
+project_token_budget = 800
+handoff_token_budget = 400
+prompt_token_budget = 450
+max_context_files = 4
+max_prompt_context_files = 3
+handoff_ttl_days = 7
 
 classifier_model = "deepseek-v4-flash"
 classifier_base_url = "https://api.deepseek.com"
 classifier_api_key_env = "DEEPSEEK_API_KEY"
-classifier_max_tokens = 4096
+classifier_max_tokens = 1200
 monthly_budget_usd = 5.0
 input_cost_per_million = 0.14
 output_cost_per_million = 0.28
 
 worker_poll_seconds = 30
-max_attempts = 8
+max_attempts = 3
 backup_command = []
-

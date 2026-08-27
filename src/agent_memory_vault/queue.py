@@ -47,6 +47,7 @@ class FileQueue:
         transcript_hash: str,
         cwd: Path,
         project_slug: str | None,
+        capture_event: str = "session-end",
     ) -> tuple[QueueJob, bool]:
         identifier = job_id(session_id, transcript_hash)
         for state in self.STATES:
@@ -60,6 +61,7 @@ class FileQueue:
             transcript_sha256=transcript_hash,
             cwd=cwd,
             project_slug=project_slug,
+            capture_event=capture_event,
         )
         self._atomic_json(self.path_for("pending", identifier), job.model_dump(mode="json"))
         return job, True

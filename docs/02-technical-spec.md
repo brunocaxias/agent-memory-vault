@@ -11,10 +11,26 @@ Codex SessionEnd --> global hook --> persistent local queue --> systemd worker
                                                             |       |
                                                             |       +--> DeepSeek V4 Flash
                                                             v
-                                                   Markdown vault + Git --> optional restic backup
+                                                   canonical Markdown records
+                                                             |
+                                                             v
+                                                   deterministic projections
+                                                             |
+                                                             v
+                                                   private Git --> optional restic backup
+
+Codex/other local MCP client --> pinned MCPVault STDIO --> read/search only
+                                                        |
+                                                        v
+                                                   Markdown vault
 ```
 
-The hook is global in `~/.codex/hooks.json`. It applies to trusted Git projects beneath configured allowed roots and explicitly allowlisted non-project directories. Denied roots and `.codex/agent-memory.toml` with `enabled = false` take precedence. The initial interface is `SessionStart` context injection and `SessionEnd` capture; MCP is deferred.
+The hook is global in `~/.codex/hooks.json`. It applies to trusted Git projects beneath configured allowed roots and explicitly allowlisted non-project directories. Denied roots and `.codex/agent-memory.toml` with `enabled = false` take precedence. `SessionStart` context injection and `SessionEnd` capture remain the deterministic memory lifecycle. MCPVault is a separate read-only access adapter and cannot write canonical memories.
+
+The application repository remains at
+`/mnt/Dump/Coding/Projects/agent-memory-vault`. The independent canonical
+vault is `/mnt/Dump/Obsidian/Vaults/Agent-Memory`. This prevents source code,
+planning documents, and test fixtures from becoming model-readable memory.
 
 ## Tech Stack
 
@@ -30,18 +46,20 @@ The hook is global in `~/.codex/hooks.json`. It applies to trusted Git projects 
 | Area | Choice | Status | Rationale |
 | --- | --- | --- | --- |
 | Canonical data | Markdown with YAML frontmatter, Obsidian-compatible | Confirmed | Portable, inspectable, recoverable without services. |
+| Agent projections | Deterministic Python-rendered Markdown under `70-projections` | Confirmed | Fluid indexes and dossiers can be replaced without creating a second source of truth. |
 | Runtime | Python 3.14 with `uv` | Confirmed | Available locally and well suited to hook, queue, validation, and system service code. |
 | HTTP/schema | `httpx`, Pydantic, PyYAML | Confirmed | Small mature dependencies for direct provider calls and strict local validation. |
-| Capture integration | Global Codex `SessionEnd` and `SessionStart` command hooks | Confirmed | Captures transcript references and injects context at supported lifecycle events. |
+| Capture integration | Global `SessionStart`, `UserPromptSubmit`, `PreCompact`, and `SessionEnd` command hooks | Confirmed | Injects bounded core/relevant context and queues durable checkpoints at supported lifecycle events. |
 | Background jobs | User-level `systemd` service plus persistent filesystem queue | Confirmed | Survives hook timeout, network failures, logout, and reboot. |
 | Classifier | DeepSeek `deepseek-v4-flash`, JSON output, non-thinking mode | Confirmed | Cheap structured classification; no native Codex-provider coupling. |
-| Retrieval | Deterministic selector over active Markdown notes | Confirmed | Predictable, cited, and cheaper than RAG for v1. |
+| Retrieval | Core selector plus rebuildable local SQLite FTS5 prompt selector over active Markdown | Confirmed | Scope/lifecycle/authority filtering remains deterministic; no embeddings or remote retrieval store. |
 | Versioning | Local Git, one commit per successful session batch | Confirmed | Exact change history and source auditability. |
 | Secret controls | Local redaction, Gitleaks, schema/link linting | Confirmed | Blocks sensitive data before network submission or commits. |
 | Backup | `restic`, encrypted object storage when configured | Confirmed | Keeps backup provider separate from canonical data and Git. |
 | Client/UI | Obsidian | Confirmed | Human inspection and correction without building a UI. |
 | Auth | Local user permissions; environment-file secrets | Confirmed | Single owner and no network listener in v1. |
-| MCP/vector DB | Not applicable in v1 | Confirmed | Add only after measured deterministic-retrieval failures. |
+| MCP access | `@bitbonsai/mcpvault@0.12.4`, local STDIO, strict read-only tool allowlist | Confirmed | Gives Codex and other MCP-compatible clients portable ad-hoc read/search access without bypassing memory governance. |
+| Vector DB/embeddings | Not applicable | Confirmed | Add only after measured lexical/entity/relation retrieval failures. |
 | Competing memory | Codex native memory generation/injection disabled | Confirmed | The Obsidian vault must be the only authoritative and injected memory layer. |
 
 ### Alternatives Considered
@@ -50,17 +68,22 @@ The hook is global in `~/.codex/hooks.json`. It applies to trusted Git projects 
 - Vector database-first retrieval: deferred because it adds opaque recall and operations before the note corpus is proven.
 - Codex as the classifier: rejected because a session-ending hook needs a cheap external runner and must avoid recursive Codex work.
 - Manual approval inbox: rejected in favor of automatic promotion constrained to explicit user statements and verified outcomes.
+- Full read/write MCPVault access: rejected because generic note mutations would bypass redaction, provenance, validation, idempotency, audit, and commit-per-session controls.
 
 ### Consequences
 
 - Automatic promotion requires strict local redaction, schema validation, idempotency, audit records, and stale-memory handling.
 - A configured provider token-cost table must be reviewed when DeepSeek pricing changes.
 - Object storage is optional at deployment time; the backup command is inactive until the owner provides a destination.
+- MCPVault failure removes only ad-hoc search/read access; hooks, bounded context injection, and capture continue independently.
+- The pinned Node package is an additional local supply-chain dependency and must be upgraded only after reviewing its tool surface and tests.
 
 ### Sources
 
 - [Codex Hooks](https://learn.chatgpt.com/docs/hooks)
 - [Codex Memories](https://learn.chatgpt.com/docs/customization/memories)
+- [Codex MCP](https://developers.openai.com/codex/mcp/)
+- [MCPVault](https://mcp-obsidian.org/)
 - [DeepSeek Create Chat Completion](https://api-docs.deepseek.com/api/create-chat-completion)
 - [DeepSeek JSON Output](https://api-docs.deepseek.com/guides/json_mode/)
 
@@ -108,11 +131,24 @@ The implementation exposes local CLI interfaces only:
 - `memory-worker`: drains the queue, calls the classifier, validates/writes notes, commits, and backs up.
 - `memory-seed`: creates initial approved notes from the defined seed sources.
 
-No HTTP server, MCP server, or remote write API exists in v1.
+No HTTP server or remote write API exists. The installer configures a pinned
+third-party local STDIO MCP process with only these enabled tools:
+
+- `read_note`, `read_multiple_notes`, and `wiki_link`;
+- `search_notes`;
+- `get_frontmatter`, `get_notes_info`, and `get_vault_stats`;
+- `list_directory` and `list_all_tags`.
+
+MCPVault's write, patch, move, delete, tag-mutation, and frontmatter-mutation
+tools are excluded by Codex's `enabled_tools` allowlist. MCP responses are
+on-demand model context; they do not replace the bounded SessionStart pack.
 
 `SessionStart` matches `startup|resume|clear|compact` and uses
 `additionalContextLimit = 5000`. `SessionEnd` uses the documented three-second
 maximum and performs only transcript hashing plus an atomic queue write.
+`PreCompact` uses the same queue-only capture path. `UserPromptSubmit` returns
+a bounded FTS5/entity/concept/relation-ranked context pack and never writes
+canonical memory.
 Because Codex documents the transcript file format as unstable, JSONL parsing is
 isolated behind a version-tolerant adapter and fails closed when no supported
 messages can be extracted.
@@ -121,22 +157,30 @@ messages can be extracted.
 
 - **Memory policy:** eligibility, sensitivity, expiry, and correction rules.
 - **Canonical notes:** approved Markdown records with stable IDs and metadata.
-- **Curated indexes:** low-token entry points that link to active details.
-- **Project dossiers:** isolated, up-to-date context for each project.
-- **Hook adapter:** fast global command-hook entry points for session start/end.
+- **Fluid projections:** deterministic manifest, active-memory, entity, concept,
+  relation, project, and supersession views that link to canonical records.
+- **Expiring handoff:** non-canonical project continuity generated from a redacted session and injected only while valid.
+- **Hook adapter:** fast global command-hook entry points for startup, prompt recall, pre-compaction checkpointing, and session end.
 - **Queue and worker:** persistent, idempotent processing outside Codex hook limits.
 - **Redactor/classifier:** deterministic local filtering followed by structured DeepSeek extraction.
 - **Validator:** future checks for required metadata, broken links, duplicate IDs, stale notes, and secrets.
-- **Selector:** bounded active-note retrieval that emits citations/manifest.
+- **Selectors:** bounded core retrieval plus prompt-aware local FTS5/entity/concept/relation retrieval that emits citations/manifest.
+- **Read-only MCP adapter:** pinned lexical search and note inspection for local MCP-compatible clients.
 - **Audit writer:** records blocked, retried, stale, budget-paused, and backup events without secrets.
 
 ## State Management
 
-The note status is authoritative. Optional indexes can be regenerated from active Markdown notes. Queue job identity is `(session_id, transcript_sha256)`; completed identities cannot write a second commit. Git records content changes; it is not an authorization system.
+The note status is authoritative. Canonical records may contain bounded grounded
+`entities`, `concepts`, temporal-validity dates, and typed relations. Everything under `70-projections` is a
+materialized view and can be deleted/rebuilt from canonical notes. Projection
+files are never scanned by the SessionStart selector. Queue job identity is
+`(session_id, transcript_sha256)`; completed identities cannot write a second
+commit. Git records canonical and generated changes atomically; it is not an
+authorization system.
 
 ## Auth & Permissions
 
-Local filesystem permissions restrict the vault to Bruno. The DeepSeek key and future `restic` credentials are held in a mode-600 environment file outside the repo. The worker sends only locally redacted excerpts to DeepSeek. Hosted-LM use is fixed to this narrowly scoped classifier call in v1.
+Local filesystem permissions restrict the vault to Bruno. The DeepSeek key and future `restic` credentials are held in a mode-600 environment file outside the repo. The worker sends only locally redacted excerpts to DeepSeek. Hosted-LM use is fixed to this narrowly scoped classifier call. MCPVault reads local files directly; a client model sees only MCP results it requests. The strict enabled-tool allowlist is the write boundary.
 
 ## Error Handling
 
@@ -149,11 +193,27 @@ Local filesystem permissions restrict the vault to Bruno. The DeepSeek key and f
 
 ## Testing Strategy
 
-Test unit-level transcript parsing/redaction, eligibility, schema validation, deduplication, supersession, stale status, token budgets, and cost accounting. Test integration with a fake DeepSeek client and a temporary Git repository. Test hook payloads, systemd queue recovery, budget pause, opt-out, and backup command invocation separately.
+Test unit-level transcript parsing/redaction, eligibility, schema validation,
+deduplication, supersession, stale status, token budgets, projection
+determinism/drift, and cost accounting. Test integration with a fake DeepSeek
+client and a temporary Git repository. Test hook payloads, systemd queue
+recovery, budget pause, opt-out, and backup command invocation separately. Test
+that MCP configuration is pinned, idempotent, TOML-valid, preserves unrelated
+servers/settings, and contains no mutation tools; perform a live STDIO
+startup/list-tools smoke test when upgrading MCPVault.
 
 ## Deployment / Operations
 
-The vault is a local Git directory opened by Obsidian. A user-level `systemd` service is always on while the user session is active. Installation updates Codex configuration with timestamped backups, disables `features.memories`, `memories.generate_memories`, and `memories.use_memories`, and installs global hooks that still require Codex trust review. `restic` backs up after each successful commit only when the owner configures an object-storage repository; no public Git remote is permitted.
+The separate vault is a private local Git directory that may be opened by
+Obsidian. A user-level `systemd` service is always on while the user session is
+active. Installation initializes the vault repository, updates Codex
+configuration with timestamped backups, disables `features.memories`,
+`memories.generate_memories`, and `memories.use_memories`, installs the
+pinned read-only `agent_memory_vault` MCP server, and installs global hooks
+that still require Codex trust review. Node.js 20+ and `npx` are MCP
+prerequisites. Codex must be restarted after MCP configuration changes.
+`restic` backs up after each successful commit only when the owner configures
+an object-storage repository; no public Git remote is permitted.
 
 ## Technical Risks
 
@@ -162,4 +222,6 @@ The vault is a local Git directory opened by Obsidian. A user-level `systemd` se
 - **Secret leakage:** controlled by narrow eligibility, scanning, and no transcript dumps.
 - **Tool lock-in:** controlled by Markdown as canonical format.
 - **Provider outage/cost:** controlled by persistent queue, retries, and a US$5 monthly cap.
-- **Overengineering RAG:** deferred until deterministic retrieval shows measurable limits.
+- **Overengineering RAG:** deferred until deterministic FTS/entity/relation retrieval shows measurable limits.
+- **MCP supply-chain drift:** controlled by an exact package version, explicit tool allowlist, and upgrade-time smoke tests.
+- **Unintended vault disclosure:** controlled by the separate agent vault, local permissions, read-only tools, and client-side consent/approval policy; selected note content still reaches the model provider when read.

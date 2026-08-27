@@ -81,7 +81,7 @@ Bruno wants the system to act as real durable memory for heavy Codex use, not me
 ### Consequences
 
 - The hook only enqueues durable jobs; a background worker does all slow work.
-- The initial consumer is Codex. Other LLMs, MCP, and semantic retrieval remain out of scope.
+- The initial consumer is Codex. At that stage, other LLMs, MCP, and semantic retrieval were out of scope; the 2026-07-28 decision below supersedes only the MCP read-access boundary.
 - The automatic pipeline must have stronger redaction, validation, audit, idempotency, and cost controls.
 
 ## 2026-07-24 - Confirmed Memory Eligibility and Lifecycle
@@ -162,3 +162,126 @@ injection layer.
 - General chats are eligible only from configured non-project roots.
 - The smaller note-authoring plan is marked superseded rather than implemented
   as a separate product.
+
+## 2026-07-28 - Confirmed Read-Only MCPVault Access Layer
+
+### Decision
+
+Add `@bitbonsai/mcpvault@0.12.4` as a pinned local STDIO MCP server named
+`agent_memory_vault`. Allow only note reads, batch reads, BM25 search,
+frontmatter and note metadata inspection, vault statistics, directory listing,
+tag listing, and wiki-link resolution. Keep every mutation tool unavailable.
+
+### Context
+
+The automatic Codex hook pipeline solves deterministic capture and context
+injection, but MCP-compatible clients benefit from a standard ad-hoc vault
+interface. MCPVault operates directly on local Markdown and does not require
+Obsidian to run. It does not provide a reliable session lifecycle or the
+project's eligibility, redaction, provenance, and idempotency controls.
+
+### Alternatives Considered
+
+- Keep MCP deferred: safest but unnecessarily limits portable read/search
+  access now that the canonical vault and governance pipeline are working.
+- Give MCPVault full read/write access: rejected because generic mutations
+  bypass the worker's validation, audit, source evidence, and Git batch rules.
+- Replace deterministic SessionStart selection with BM25: rejected because
+  lexical relevance does not enforce scope, lifecycle status, or token budgets.
+
+### Consequences
+
+- Codex and separately configured MCP clients can inspect the same canonical
+  Markdown without a provider-specific skill invocation.
+- Hooks and the worker remain the only automatic capture and canonical write
+  path; MCP failure cannot block them.
+- The Node package is version-pinned and upgrades require reviewing the exact
+  tool list plus a live STDIO smoke test.
+- Automatic non-Codex capture remains out of scope until a narrow
+  candidate-submission interface is designed.
+
+## 2026-07-28 - Confirmed Layered Agent-Native Vault
+
+### Decision
+
+Keep the software repository at
+`/mnt/Dump/Coding/Projects/agent-memory-vault` and create the independent
+canonical vault at `/mnt/Dump/Obsidian/Vaults/Agent-Memory`. Use two data
+layers:
+
+1. stable source-cited canonical memory records; and
+2. deterministic, fluid Markdown projections for agent navigation.
+
+Generate a manifest, active-memory index, per-project dossiers, entity and
+concept indexes, and a supersession graph under `70-projections`. Projection
+files are explicitly non-canonical, may be deleted/rebuilt, and never enter
+automatic context independently of their canonical source records.
+
+### Context
+
+Bruno confirmed that the vault's primary readers are agents and that its
+structure may be fluid. A conventional human-first notes hierarchy is too
+shallow, but unrestricted agent rewriting would weaken provenance and allow
+derived summaries to become indistinguishable from sourced memory.
+
+### Alternatives Considered
+
+- Keep only atomic notes: rejected because navigation becomes shallow as the
+  corpus grows.
+- Let agents freely rewrite every note: rejected because facts, summaries, and
+  inferred relationships would drift without a stable evidence layer.
+- Add a graph/vector database now: rejected because deterministic Markdown
+  projections provide the required fluidity without a second datastore or
+  retrieval dependency.
+
+### Consequences
+
+- Canonical records gain optional bounded, grounded `entities` and
+  `concepts` labels.
+- Projection output is byte-deterministic, validated against canonical input,
+  committed alongside each session batch, and rebuildable offline.
+- Obsolete generated files are deleted only within the dedicated
+  `70-projections` boundary.
+- The separate vault has its own private local Git repository; application code
+  and planning documents are not exposed as memory through MCP.
+- Human readability remains useful, but machine navigation, provenance, and
+  reconstructability take priority.
+
+## 2026-07-28 - Confirmed Three-Lane Recall and Continuity Upgrade
+
+### Decision
+
+Keep canonical Markdown and the existing redaction/worker/Git write boundary.
+Add an expiring project handoff, queue-only `PreCompact` checkpointing, and
+bounded `UserPromptSubmit` recall using a rebuildable local SQLite FTS5 index.
+Extend records with temporal-validity dates and typed grounded relations. Add a
+proposal-only curator; defer embeddings and graph databases.
+
+### Context
+
+Repository research showed that Markdown-first agent-memory systems converge on
+short core memory, session handoffs, relevance-aware recall, temporal
+supersession, and maintenance/evaluation loops. The existing selector ranked
+only by priority/date at session start, which could inject irrelevant context
+after the user's actual prompt became known.
+
+### Alternatives Considered
+
+- Replace the vault with an external memory product: rejected because it would
+  weaken or duplicate the existing local redaction, eligibility, provenance,
+  audit, and canonical-write controls.
+- Add embeddings or a graph database immediately: deferred because local FTS,
+  scope, lifecycle, entities, concepts, and relations provide an inspectable
+  baseline first.
+- Let consolidation rewrite canonical notes automatically: rejected because
+  deterministic diagnostics may propose maintenance but cannot establish new
+  truth without evidence.
+
+### Consequences
+
+- `60-handoffs` is an intentionally non-canonical, expiring continuity layer.
+- The FTS5 database lives in runtime state and is rebuildable from canonical
+  Markdown.
+- Handoff and prompt recall remain bounded and source-cited.
+- The daily curator produces a report only when it finds deterministic issues;
+  it never mutates canonical records.

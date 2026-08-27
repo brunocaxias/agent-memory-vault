@@ -6,8 +6,10 @@ import sys
 from pathlib import Path
 
 from .config import load_settings
-from .hooks import run_session_end, run_session_start
+from .gitops import initialize_vault_repository
+from .hooks import run_pre_compact, run_session_end, run_session_start, run_user_prompt_submit
 from .installer import install_user_files
+from .projections import rebuild_projections
 from .queue import FileQueue
 from .seed import initialize_vault
 from .validation import validate_vault
@@ -27,11 +29,15 @@ def context_main() -> int:
 
 def hook_main() -> int:
     parser = argparse.ArgumentParser(description="Codex lifecycle hook adapter")
-    parser.add_argument("event", choices=["session-end"])
+    parser.add_argument("event", choices=["session-end", "pre-compact", "user-prompt-submit"])
     parser.add_argument("--config", type=Path)
     args = parser.parse_args()
     settings = load_settings(args.config)
-    return run_session_end(settings)
+    if args.event == "session-end":
+        return run_session_end(settings)
+    if args.event == "pre-compact":
+        return run_pre_compact(settings)
+    return run_user_prompt_submit(settings)
 
 
 def worker_main() -> int:
@@ -75,11 +81,21 @@ def main() -> int:
     resume_parser.add_argument("--config", type=Path)
     validate_parser = subparsers.add_parser("validate", help="validate canonical memory notes")
     validate_parser.add_argument("--config", type=Path)
+    rebuild_parser = subparsers.add_parser(
+        "rebuild-projections", help="regenerate all fluid agent projections"
+    )
+    rebuild_parser.add_argument("--config", type=Path)
+    curator_parser = subparsers.add_parser(
+        "curate", help="report proposal-only memory maintenance findings"
+    )
+    curator_parser.add_argument("--config", type=Path)
+    curator_parser.add_argument("--write-report", action="store_true")
     args = parser.parse_args()
 
     settings = load_settings(getattr(args, "config", None))
     if args.command == "install":
         initialize_vault(settings)
+        initialize_vault_repository(settings.vault_root)
         result = install_user_files(settings, args.executable_directory.resolve())
         print(json.dumps(result, indent=2))
         return 0
@@ -105,4 +121,31 @@ def main() -> int:
         issues = validate_vault(settings.vault_root)
         print(json.dumps([issue.__dict__ for issue in issues], indent=2))
         return 1 if issues else 0
+    if args.command == "rebuild-projections":
+        changed = rebuild_projections(settings.vault_root)
+        print(json.dumps({"changed": [str(path) for path in changed]}, indent=2))
+        return 0
+    if args.command == "curate":
+        from .curator import curate_vault, write_curator_report
+
+        report = curate_vault(settings.vault_root)
+        path = (
+            write_curator_report(settings.vault_root, report)
+            if args.write_report and report.findings
+            else None
+        )
+        if path is not None:
+            from .gitops import commit_memory_batch
+
+            commit_memory_batch(settings.vault_root, f"curator-{report.generated_on.isoformat()}")
+        print(
+            json.dumps(
+                {
+                    "findings": [item.__dict__ for item in report.findings],
+                    "report": str(path or ""),
+                },
+                indent=2,
+            )
+        )
+        return 0
     return 2

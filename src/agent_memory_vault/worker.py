@@ -14,6 +14,7 @@ from .config import Settings
 from .gitops import GitError, commit_memory_batch, run_backup
 from .queue import FileQueue
 from .redaction import detect_out_of_scope, redact
+from .retrieval import refresh_index
 from .transcript import TranscriptError, build_classifier_excerpt, parse_transcript
 from .vault import Vault
 
@@ -180,6 +181,13 @@ class MemoryWorker:
                 rejected_evidence += 1
 
         written, policy_rejections = self.vault.write_batch(valid, job)
+        handoff_path = None
+        if result.output.handoff is not None:
+            handoff_path = self.vault.write_handoff(
+                result.output.handoff,
+                job,
+                ttl_days=self.settings.handoff_ttl_days,
+            )
         if rejected_evidence or policy_rejections:
             write_vault_audit(
                 self.settings.vault_root,
@@ -191,6 +199,7 @@ class MemoryWorker:
                 ),
             )
         self.vault.mark_overdue_stale()
+        refresh_index(self.settings.vault_root, self.settings.state_root)
         try:
             self._commit_and_backup(job.session_id)
         except GitError as exc:
@@ -207,6 +216,8 @@ class MemoryWorker:
             job_id=job.id,
             memories_written=len(written),
             candidates=len(result.output.memories),
+            handoff_written=bool(handoff_path),
+            capture_event=job.capture_event,
         )
         return WorkResult("completed", job.id, len(written))
 

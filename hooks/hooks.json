@@ -9,7 +9,7 @@
             "type": "command",
             "command": "/mnt/Dump/Coding/Projects/agent-memory-vault/.venv/bin/memory-context --hook",
             "statusMessage": "Loading persistent Obsidian memory",
-            "additionalContextLimit": 5000
+            "additionalContextLimit": 1200
           }
         ]
       }
@@ -24,7 +24,30 @@
           }
         ]
       }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/mnt/Dump/Coding/Projects/agent-memory-vault/.venv/bin/memory-hook pre-compact",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/mnt/Dump/Coding/Projects/agent-memory-vault/.venv/bin/memory-hook user-prompt-submit",
+            "statusMessage": "Retrieving relevant persistent memory",
+            "additionalContextLimit": 600
+          }
+        ]
+      }
     ]
   }
 }
-
